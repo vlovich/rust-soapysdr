@@ -4,6 +4,8 @@
 //!
 
 mod args;
+use std::ffi::CStr;
+
 pub use args::{Args, ArgsIterator};
 
 mod arginfo;
@@ -14,6 +16,35 @@ pub use device::{enumerate, Device, Direction, Error, ErrorCode, Range, RxStream
 
 mod format;
 pub use format::{Format, StreamSample};
+use soapysdr_sys::{SoapySDR_listModules, SoapySDR_listSearchPaths};
+
+unsafe fn to_string_vec(
+    f: unsafe extern "C" fn(length: *mut usize) -> *mut *mut std::ffi::c_char,
+) -> Vec<String> {
+    let mut length = 0;
+    let array_of_cstring = unsafe { f(&mut length) };
+    if array_of_cstring.is_null() {
+        return vec![];
+    }
+
+    unsafe { std::slice::from_raw_parts(array_of_cstring, length) }
+        .iter()
+        .filter_map(|cstr| {
+            unsafe { CStr::from_ptr(*cstr) }
+                .to_str()
+                .ok()
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+pub fn search_paths() -> Vec<String> {
+    unsafe { to_string_vec(SoapySDR_listSearchPaths) }
+}
+
+pub fn list_modules() -> Vec<String> {
+    unsafe { to_string_vec(SoapySDR_listModules) }
+}
 
 /// Configures SoapySDR to log to the Rust `log` facility.
 ///
