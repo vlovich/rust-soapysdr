@@ -163,7 +163,7 @@ fn panic_help_message_libclang() -> ! {
     }
 }
 
-fn build_bundled_soapysdr() -> Vec<PathBuf> {
+fn build_bundled_soapysdr(build_static: bool) -> Vec<PathBuf> {
     let revision_to_build = "soapy-sdr-0.8.1";
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let soapysdr_dir = out_dir.join("SoapySDR");
@@ -206,28 +206,32 @@ fn build_bundled_soapysdr() -> Vec<PathBuf> {
         std::fs::write(&revision_file, revision_to_build).expect("Failed to write revision cache");
     }
 
-    let lib_cmakelists = soapysdr_dir.join("lib/CMakeLists.txt");
-    let lib_cmakelists_content =
-        std::fs::read_to_string(&lib_cmakelists).expect("Failed to read lib/CMakeLists.txt");
+    if build_static {
+        let lib_cmakelists = soapysdr_dir.join("lib/CMakeLists.txt");
+        let lib_cmakelists_content =
+            std::fs::read_to_string(&lib_cmakelists).expect("Failed to read lib/CMakeLists.txt");
 
-    // Patch the CMakeLists.txt to build static instead of shared as unfortunately it looks like the upstream
-    // project forces shared libraries instead of respecting BUILD_SHARED_LIBS.
-    let patched_content = lib_cmakelists_content
-        .replace("add_library(SoapySDR SHARED", "add_library(SoapySDR STATIC");
+        // Patch the CMakeLists.txt to build static instead of shared as unfortunately it looks like the upstream
+        // project forces shared libraries instead of respecting BUILD_SHARED_LIBS.
+        let patched_content = lib_cmakelists_content
+            .replace("add_library(SoapySDR SHARED", "add_library(SoapySDR STATIC");
 
-    std::fs::write(&lib_cmakelists, patched_content)
-        .expect("Failed to write patched lib/CMakeLists.txt");
+        std::fs::write(&lib_cmakelists, patched_content)
+            .expect("Failed to write patched lib/CMakeLists.txt");
 
-    // Patch Config.h to undefine SOAPY_SDR_DLL for static builds
-    let config_h = soapysdr_dir.join("include/SoapySDR/Config.h");
-    let config_h_content = std::fs::read_to_string(&config_h).expect("Failed to read Config.h");
+        // Patch Config.h to undefine SOAPY_SDR_DLL for static builds
+        let config_h = soapysdr_dir.join("include/SoapySDR/Config.h");
+        let config_h_content = std::fs::read_to_string(&config_h).expect("Failed to read Config.h");
 
-    let patched_config = config_h_content.replace(
-        "#define SOAPY_SDR_DLL //always building a DLL",
-        "// #define SOAPY_SDR_DLL //always building a DLL (disabled for static build)",
-    );
+        let patched_config = config_h_content.replace(
+            "#define SOAPY_SDR_DLL //always building a DLL",
+            "// #define SOAPY_SDR_DLL //always building a DLL (disabled for static build)",
+        );
 
-    std::fs::write(&config_h, patched_config).expect("Failed to write patched Config.h");
+        std::fs::write(&config_h, patched_config).expect("Failed to write patched Config.h");
+    }
+
+    println!("cargo:rerun-if-env-changed=SOAPY_SDR_ROOT");
 
     let install_prefix = out_dir.join("soapysdr-install");
     cmake::Config::new(&soapysdr_dir)
@@ -254,15 +258,17 @@ fn build_bundled_soapysdr() -> Vec<PathBuf> {
         .build_target("install")
         .build();
 
+    let lib_kind = if build_static { "static" } else { "dylib" };
+
     println!(
         "cargo:rustc-link-search=native={}/lib",
         install_prefix.display()
     );
-    println!("cargo:rustc-link-lib=static=SoapySDR");
+    println!("cargo:rustc-link-lib={lib_kind}=SoapySDR");
 
     // Any libraries SoapySDR needs to be linked against need to be specified here since static libraries don't
     // carry that information for you.
-    if cfg!(unix) {
+    if cfg!(unix) && build_static {
         // Detect which C++ standard library to use based on the compiler
         let cpp_lib = if cfg!(target_env = "musl") {
             // musl-based systems typically use libstdc++
@@ -291,8 +297,10 @@ fn build_bundled_soapysdr() -> Vec<PathBuf> {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=BUILD_SOAPYSDR_STATIC");
+
     let include_paths = if cfg!(feature = "bundled") {
-        build_bundled_soapysdr()
+        build_bundled_soapysdr(std::env::var("BUILD_SOAPYSDR_STATIC").is_ok_and(|v| v == "1"))
     } else {
         probe_env_var()
             .or_else(probe_pkg_config)
