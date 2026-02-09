@@ -174,7 +174,7 @@ fn panic_help_message_libclang() -> ! {
 fn build_bundled_soapysdr(build_static: bool) -> Vec<PathBuf> {
     let revision_to_build =
         std::env::var("SOAPY_SDR_TAG").unwrap_or_else(|_| "soapy-sdr-0.8.1".to_string());
-    panic!("Building {revision_to_build}");
+    let revision_to_build = revision_to_build.as_str();
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let soapysdr_dir = out_dir.join("SoapySDR");
 
