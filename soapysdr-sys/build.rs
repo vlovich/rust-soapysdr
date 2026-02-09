@@ -268,7 +268,7 @@ fn build_bundled_soapysdr(build_static: bool) -> Vec<PathBuf> {
 
     // Any libraries SoapySDR needs to be linked against need to be specified here since static libraries don't
     // carry that information for you.
-    if cfg!(unix) && build_static {
+    if cfg!(unix) {
         // Detect which C++ standard library to use based on the compiler
         let cpp_lib = if cfg!(target_env = "musl") {
             // musl-based systems typically use libstdc++
